@@ -1,0 +1,28 @@
+.idea/
+__pycache__/
+*.py[cod]
+.DS_Store
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Model-library runtime artefacts
+catboost_info/
+**/catboost_info/
+*.tfevents*
+
+# 原始数据和可能包含敏感信息的中间文件不纳入版本控制
+data/raw/**
+data/processed/**
+outputs/**
+
+!data/raw/
+!data/raw/soccermon/
+!data/raw/local_24/
+!data/raw/soccermon/.gitkeep
+!data/raw/local_24/.gitkeep
+!data/processed/.gitkeep
+!outputs/.gitkeep
