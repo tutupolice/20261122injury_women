@@ -1,12 +1,13 @@
 # src/step11_locked_paper_suite.py
 """
-女足运动损伤风险跨数据集迁移与小样本外部验证 —— 论文定稿级评估脚本 (Step 11)
-严格落实全部五项审稿级定稿要求：
-1. 源域专家采用【5折交叉拟合集成 (Cross-Fitted 5-Fold Ensemble)】，确保源域 OOF 与目标域预测特征分布 100% 同构；
-2. 表 2 的 Top 10%~30% 预警预算阈值严格在每个外层折内部由【内层 GroupKFold OOF (`inner_oof`)】保存并冻结用于外层测试折；
-3. 同时报告标准 GroupKFold (标注有效折数 5/6) 与官方 StratifiedGroupKFold (5/5 有效折，消除无阳性空折)；
-4. 表 3 全面采用匿名运动员编号 (P01~P24) 保护受试者隐私；
-5. 引入折内 Platt 概率校准 (In-Fold Logistic Calibration) 并报告 Brier Score 与校准后风险比 (Lift)。
+女足运动损伤风险跨数据集迁移与目标队伍更新 —— 论文定稿级评估脚本 (Step 11 审查整改版)
+严格落实全部定稿要求：
+1. 源域保留全部 50 名运动员（消除 15 人选择偏倚），采用全因伤病通知 (target_all_inj_next_7d/3d)；
+2. 源域专家采用【5折交叉拟合集成 (Cross-Fitted 5-Fold Ensemble)】，确保源域 OOF 与目标域预测特征分布 100% 同构；
+3. 表 2 的 Top 10%~30% 预警预算阈值严格在每个外层折内部由【内层 StratifiedGroupKFold OOF】保存并冻结用于外层测试折；
+4. 同时报告标准 GroupKFold (6折) 与官方 StratifiedGroupKFold (5/5 有效折)；
+5. 表 3 全面采用匿名运动员编号 (P01~P24) 保护受试者隐私；
+6. 引入折内 Platt 概率校准 (In-Fold Logistic Calibration) 并报告 Brier Score。
 """
 from pathlib import Path
 import numpy as np
@@ -24,7 +25,6 @@ from sklearn.metrics import (
     precision_score,
     recall_score,
     brier_score_loss,
-    precision_recall_curve,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -57,7 +57,6 @@ class CrossFittedSourceExpert:
     """
     交叉拟合源域专家 (Cross-Fitted 5-Fold Source Expert)：
     在源域上通过 5-Fold GroupKFold 生成 OOF 分数，并直接保存这 5 个折模型构成的集成器 (Ensemble)。
-    对目标域预测时，直接调用这 5 个折模型预测并取均值，确保源域 OOF 与目标域预测表示分布 100% 一致！
     """
     def __init__(self, feat_cols: list[str], require_gps: bool = False):
         self.feat_cols = feat_cols
@@ -164,7 +163,6 @@ def fit_nested_crossfitted_source(sm_clean: pd.DataFrame, loc_active: pd.DataFra
             + 0.30 * sm_val_df["sm_expert_biomech"].values
             + 0.30 * sm_val_df["sm_expert_wellness"].values
         )
-        # 在源域折内做 Platt 概率校准 (消除 class_weight="balanced" 带来的 Brier 偏高)
         cal_2a = LogisticRegression(C=1.0, random_state=42).fit(raw_2a_tr.reshape(-1, 1), y_out_tr)
         nested_oof_2a[out_val] = cal_2a.predict_proba(raw_2a_val.reshape(-1, 1))[:, 1]
 
@@ -173,7 +171,6 @@ def fit_nested_crossfitted_source(sm_clean: pd.DataFrame, loc_active: pd.DataFra
         X_tr_s = sc_s.transform(imp_s.transform(sm_tr_df[zs_cols].values))
         X_val_s = sc_s.transform(imp_s.transform(sm_val_df[zs_cols].values))
 
-        # 使用不加 balanced 的自然先验或 Platt 校准输出真实概率尺度
         lr_s = LogisticRegression(C=0.05, class_weight="balanced", random_state=42).fit(X_tr_s, y_out_tr)
         lr_s.coef_ = np.maximum(lr_s.coef_, 0.05)
         raw_2b_tr = lr_s.predict_proba(X_tr_s)[:, 1]
@@ -187,7 +184,6 @@ def fit_nested_crossfitted_source(sm_clean: pd.DataFrame, loc_active: pd.DataFra
     th_2a = select_threshold_from_oof(y_sm, nested_oof_2a)
     th_2b = select_threshold_from_oof(y_sm, nested_oof_2b)
 
-    # 对本地目标域直接用这 5 套双层嵌套源域模型做 Cross-Fitted 平均预测 (训练与测试表示 100% 同构！)
     loc_out = loc_active.copy()
     ov_preds, bi_preds, we_preds, p2a_preds, p2b_preds = [], [], [], [], []
 
@@ -224,13 +220,7 @@ def fit_nested_crossfitted_source(sm_clean: pd.DataFrame, loc_active: pd.DataFra
 
 
 class CalibratedNestedAdapter:
-    """
-    带折内 Platt 概率校准与内层 OOF 预算阈值存储的二阶段适配器：
-    1) 在训练折内部通过内层 GroupKFold 生成严格的 `inner_oof_prob`；
-    2) 用 `inner_oof_prob` 拟合 Platt 校准器 (LogisticRegression)，使输出概率对齐目标域真实阳性率，大幅降低 Brier Score；
-    3) 在校准后的 `inner_oof_prob` 上一次性保存 F1 最优阈值及 Top 10%/15%/20%/25%/30% 五档预算阈值，
-       彻底杜绝表 2 敏感性分析的折间信息交叉！
-    """
+    """带折内 Platt 概率校准与内层 OOF 预算阈值存储的二阶段适配器"""
     def __init__(self, include_history: bool = True):
         self.include_history = include_history
         self.imp_female = SimpleImputer(strategy="median")
@@ -299,7 +289,6 @@ class CalibratedNestedAdapter:
         n_groups = len(np.unique(players_tr))
         inner_raw_oof = np.zeros(len(df_tr))
 
-        # 优先使用 StratifiedGroupKFold 防止内层出现全 0 折
         inner_cv = StratifiedGroupKFold(n_splits=min(5, n_groups))
         for i_tr, i_val in inner_cv.split(df_tr, y_tr, groups=players_tr):
             if len(np.unique(y_tr[i_tr])) < 2:
@@ -308,17 +297,14 @@ class CalibratedNestedAdapter:
             sub._fit_core(df_tr.iloc[i_tr], y_tr[i_tr])
             inner_raw_oof[i_val] = sub._predict_uncalibrated(df_tr.iloc[i_val])
 
-        # 基于内层 OOF 拟合 Platt 概率校准器
         self.platt_cal_ = LogisticRegression(C=1.0, random_state=42).fit(inner_raw_oof.reshape(-1, 1), y_tr)
         inner_cal_oof = self.platt_cal_.predict_proba(inner_raw_oof.reshape(-1, 1))[:, 1]
 
-        # 在内层校准 OOF 上保存 F1 阈值与全部 5 档预算阈值（100% 折内闭环！）
         self.threshold_f1_ = select_threshold_from_oof(y_tr, inner_cal_oof)
         self.budget_thresholds_ = {
             b: float(np.quantile(inner_cal_oof, 1.0 - b)) for b in budgets
         }
 
-        # 最后在整个外层训练折上拟合主模型参数
         self._fit_core(df_tr, y_tr)
         return self
 
@@ -346,17 +332,27 @@ def compute_fold_mean_sd(y_true: np.ndarray, y_prob: np.ndarray, fold_ids: np.nd
 
 
 def run_step11_suite(df_sm: pd.DataFrame, df_loc: pd.DataFrame, target_col: str, horizon_days: int, title: str):
+    # 内存映射 SoccerMon 正名目标列 target_all_inj_next_{horizon}d，不改动原文件
+    df_sm = df_sm.copy()
+    sm_alt = f"target_all_inj_next_{horizon_days}d"
+    if target_col not in df_sm.columns and sm_alt in df_sm.columns:
+        df_sm[target_col] = df_sm[sm_alt]
+
     print("\n" + "=" * 118)
-    print(f"📊 论文定稿评估报表 (Cross-Fitted Source + In-Fold Budget OOF + Anonymized + Brier) —— [{title}]")
+    print(f"📊 论文定稿评估报表 (全50人源域 + 连续自然日 + Platt校准 + 匿名化) —— [{title}]")
     print("=" * 118)
 
-    sm_active = df_sm[df_sm["is_active_day"] == 1].copy()
-    inj_counts = sm_active.groupby("player_id")["inj_prevalence"].sum()
-    valid_sm_players = set(inj_counts[inj_counts > 0].index)
-    sm_clean = sm_active[sm_active["player_id"].isin(valid_sm_players)].copy()
-    sm_clean = sm_clean[~((sm_clean["inj_prevalence"] == 1) & (sm_clean["inj_non_contact_onset"] == 0))].reset_index(drop=True)
+    # 严格保留全部 50 名有效监控运动员（消除 15 人选择偏倚）
+    sm_act_col = "active_day" if "active_day" in df_sm.columns else "is_active_day"
+    sm_active = df_sm[(df_sm[sm_act_col] == 1) & (df_sm["is_rehab"] == 0) & (df_sm["is_injured"] == 0)].copy()
+    sm_onset_col = "inj_all_onset" if "inj_all_onset" in sm_active.columns else "inj_all_onset"
+    if "inj_prevalence" in sm_active.columns and sm_onset_col in sm_active.columns:
+        sm_clean = sm_active[~((sm_active["inj_prevalence"] == 1) & (sm_active[sm_onset_col] == 0))].reset_index(drop=True)
+    else:
+        sm_clean = sm_active.reset_index(drop=True)
 
-    loc_active = df_loc[df_loc["is_active_day"] == 1].copy().sort_values(["date", "player_id"]).reset_index(drop=True)
+    loc_act_col = "active_day" if "active_day" in df_loc.columns else "is_active_day"
+    loc_active = df_loc[(df_loc[loc_act_col] == 1) & (df_loc["is_rehab"] == 0) & (df_loc["is_injured"] == 0)].copy().sort_values(["date", "player_id"]).reset_index(drop=True)
     loc_active = anonymize_player_ids(loc_active)
     y_loc = loc_active[target_col].values
     players_loc = loc_active["anon_id"].values
@@ -376,7 +372,7 @@ def run_step11_suite(df_sm: pd.DataFrame, df_loc: pd.DataFrame, target_col: str,
     pred_2a = (prob_2a >= th_2a).astype(int)
     pred_2b = (prob_2b >= th_2b).astype(int)
 
-    # 3A & 3B. 标准 6-Fold GroupKFold (保留原始切分，记录有效折数 5/6)
+    # 3A & 3B. 标准 6-Fold GroupKFold
     gkf6 = GroupKFold(n_splits=6)
     oof_prob_gkf6_nh = np.zeros(len(loc_active))
     oof_pred_gkf6_nh = np.zeros(len(loc_active), dtype=int)
@@ -414,7 +410,7 @@ def run_step11_suite(df_sm: pd.DataFrame, df_loc: pd.DataFrame, target_col: str,
             "Model_3b_AP": round(average_precision_score(y_te, p_cal), 4) if has_pos else "NA(无阳性)",
         })
 
-    # 3C. 官方 StratifiedGroupKFold (5折分层分组，验证消除无阳性折后的稳定性)
+    # 3C. 官方 StratifiedGroupKFold (5折分层分组)
     sgkf5 = StratifiedGroupKFold(n_splits=5)
     oof_prob_sgkf5 = np.zeros(len(loc_active))
     oof_pred_sgkf5 = np.zeros(len(loc_active), dtype=int)
@@ -447,7 +443,6 @@ def run_step11_suite(df_sm: pd.DataFrame, df_loc: pd.DataFrame, target_col: str,
         })
 
     # 4. 严格时间序列前滚 Purged Temporal CV
-    #    概率校准也必须在当前历史训练窗口内部用嵌套 OOF 完成，不能用训练窗口自身的拟合预测。
     unique_dates = np.sort(dates_loc.unique())
     n_dates = len(unique_dates)
     oof_prob_temp = np.copy(prob_2b)
@@ -462,8 +457,6 @@ def run_step11_suite(df_sm: pd.DataFrame, df_loc: pd.DataFrame, target_col: str,
         n_hist = int(tr_mask.sum())
 
         if d_idx >= warmup_cut and n_hist >= 120 and y_loc[tr_mask].sum() >= 8:
-            # fit_nested() 会在 tr_mask 内部生成 StratifiedGroupKFold OOF 原始分数，
-            # 再用这些 OOF 分数拟合 Platt 校准器；因此这里不再使用训练集自身的拟合预测。
             ad_temp = CalibratedNestedAdapter(include_history=True).fit_nested(
                 loc_active.iloc[tr_mask], y_loc[tr_mask], budgets
             )
@@ -475,7 +468,6 @@ def run_step11_suite(df_sm: pd.DataFrame, df_loc: pd.DataFrame, target_col: str,
             th_hist_oof = select_threshold_from_oof(y_loc[tr_mask], oof_prob_temp[tr_mask])
             oof_pred_temp[te_mask] = (oof_prob_temp[te_mask] >= th_hist_oof).astype(int)
 
-        # 对于固定预警预算 Top-b%，严格使用最近 21 天无重叠历史窗口的分位数，抑制跨月尺度漂移
         recent_start = pd.Timestamp(curr_date) - pd.Timedelta(days=horizon_days + 21)
         recent_mask = ((dates_loc <= purge_cutoff) & (dates_loc >= recent_start)).values
         ref_probs = oof_prob_temp[recent_mask] if recent_mask.sum() >= 30 else prob_2b[: max(24, np.where(te_mask)[0][0])]
@@ -514,7 +506,6 @@ def run_step11_suite(df_sm: pd.DataFrame, df_loc: pd.DataFrame, target_col: str,
     print("\n[表 1] 主验证性能对比表 (含有效折数、Pooled 指标、Fold Mean±SD 与 Brier 校准分):")
     print(main_table.to_string(index=False))
 
-    # 构建严格折内 `inner_oof` 阈值的表 2
     base_rate = y_loc.mean()
     sens_rows = []
     for b in budgets:
@@ -554,10 +545,10 @@ if __name__ == "__main__":
     df_loc = add_causal_ewma_and_context_features(df_loc, is_local=True)
 
     m7, s7, f7 = run_step11_suite(
-        df_sm, df_loc, "target_non_contact_next_7d", horizon_days=7, title="未来 7 天非接触性损伤预警 (阳性率 18.30%)"
+        df_sm, df_loc, "target_all_inj_next_7d", horizon_days=7, title="未来 7 天自报告运动损伤预警"
     )
     m3, s3, f3 = run_step11_suite(
-        df_sm, df_loc, "target_non_contact_next_3d", horizon_days=3, title="未来 3 天非接触性损伤预警 (阳性率 10.27%)"
+        df_sm, df_loc, "target_all_inj_next_3d", horizon_days=3, title="未来 3 天自报告运动损伤预警"
     )
 
     pd.concat([m7.assign(窗口="7天"), m3.assign(窗口="3天")], ignore_index=True).to_csv(

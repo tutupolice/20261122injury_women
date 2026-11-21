@@ -178,6 +178,7 @@ def audit_and_load_data():
         df_sm = df_sm[(df_sm["is_injured"] == 0) | (df_sm["inj_all_onset"] == 1)].copy()
 
     target_candidates = [
+        "target_all_inj_next_7d",
         "target_non_contact_next_7d",
         "target_injury_next_7d",
         "injury_next_7d",

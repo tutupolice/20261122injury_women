@@ -136,7 +136,7 @@ def engineer_features(df: pd.DataFrame, dataset_name: str) -> pd.DataFrame:
     )
 
     # ================= 4. 严格的既往伤病史特征 (仅用 t-1 及以前，绝不泄露当日标签) =================
-    injury_source = df["inj_non_contact_onset"]
+    injury_source = df["inj_all_onset"]
     features["prev_inj_7d"] = by_player_transform(
         injury_source, lambda s: s.shift(1).fillna(0).rolling(7, min_periods=1).sum()
     )
@@ -171,46 +171,37 @@ def engineer_features(df: pd.DataFrame, dataset_name: str) -> pd.DataFrame:
     return df
 
 
-def check_cross_domain_consistency(df_sm: pd.DataFrame, df_loc: pd.DataFrame):
-    print("\n" + "=" * 80)
-    print("🔬 跨数据集特征与损伤相关性一致性检验 (检验 SoccerMon 与 本地24人 是否同向！)")
-    print("=" * 80)
+def check_cross_domain_consistency(df_sm_feat, df_loc_feat):
+    print("\n" + "=" * 85)
+    print("🔬 跨数据集特征与损伤相关性一致性检验 (SoccerMon 50人全因伤病 vs 本地24人自报告运动损伤)")
+    print("=" * 85)
 
-    # 在 SoccerMon 中，只取至少有过 1 次伤病记录的活跃监测球员子集 (排除从未使用伤病上报模块的 35 人)
-    sm_active = df_sm[df_sm["is_active_day"] == 1].copy()
-    inj_players_sm = sm_active.groupby("player_id")["inj_prevalence"].sum()
-    valid_inj_Reporting_players = set(inj_players_sm[inj_players_sm > 0].index)
-    sm_cohort = sm_active[sm_active["player_id"].isin(valid_inj_Reporting_players)].copy()
+    sm_target = "target_all_inj_next_7d" if "target_all_inj_next_7d" in df_sm_feat.columns else "target_all_inj_next_7d"
+    loc_target = "target_all_inj_next_7d"
 
-    loc_cohort = df_loc[df_loc["is_active_day"] == 1].copy()
+    sm_cohort = df_sm_feat[df_sm_feat["active_day"] == 1] if "active_day" in df_sm_feat.columns else df_sm_feat
+    loc_cohort = df_loc_feat[df_loc_feat["active_day"] == 1] if "active_day" in df_loc_feat.columns else df_loc_feat
 
-    print(f"SoccerMon 有效上报伤病队列人日: {len(sm_cohort)} (15人) | 本地活跃监测人日: {len(loc_cohort)} (24人)\n")
+    sm_n_players = sm_cohort["player_id"].nunique() if "player_id" in sm_cohort.columns else 50
+    loc_n_players = loc_cohort["player_id"].nunique() if "player_id" in loc_cohort.columns else 24
 
-    test_features = [
-        "soreness_01", "fatigue_01", "sleep_poor_01", "stress_01", "mood_poor_01",
-        "wellness_poor_mean", "wellness_poor_mean_z", "soreness_01_z", "fatigue_01_z",
-        "soreness_01_roll7d", "uload_acwr", "dist_acwr", "hsr_acwr", "decel_acwr",
-        "decel_accel_ratio", "imu_dyn_p95_g_z", "hr_speed_ratio_z",
-        "prev_inj_14d", "prev_inj_30d", "recent_inj_decay"
+    print(f"SoccerMon 活跃监控人日: {len(sm_cohort)} ({sm_n_players}人, 目标: {sm_target}) | "
+          f"本地活跃监控人日: {len(loc_cohort)} ({loc_n_players}人, 目标: {loc_target})\n")
+    print(f"{'特征名称':28s} | {'SoccerMon r':>14s} | {'本地24人 r':>12s} | {'两域方向是否一致'}")
+    print("-" * 85)
+
+    check_feats = [
+        "fatigue_01", "fatigue_01_roll7d", "fatigue_01_z",
+        "soreness_01", "soreness_01_roll7d", "sleep_poor_01_roll7d",
+        "srpe_acwr", "uload_monotony7", "days_since_last_inj",
     ]
-
-    target_col = "target_non_contact_next_7d"
-    print(f"对比目标标签: {target_col} (未来 7 天非接触损伤风险)")
-    print(f"{'特征名称':24s} | {'SoccerMon 相关性(r)':>18s} | {'本地24人 相关性(r)':>18s} | {'两域方向是否一致'}")
-    print("-" * 80)
-    consistent_count = 0
-    for feat in test_features:
-        r_sm = sm_cohort[feat].corr(sm_cohort[target_col])
-        r_loc = loc_cohort[feat].corr(loc_cohort[target_col])
-        same_sign = (r_sm * r_loc) > 0
-        if same_sign:
-            consistent_count += 1
-        flag = "✅ 同向" if same_sign else "⚠️ 反向"
-        print(f"{feat:24s} | {r_sm:+18.4f} | {r_loc:+18.4f} | {flag}")
-
-    print("-" * 80)
-    print(f"🎯 关键特征两域同向率: {consistent_count} / {len(test_features)}")
-
+    for feat in check_feats:
+        if feat not in sm_cohort.columns or feat not in loc_cohort.columns:
+            continue
+        r_sm = sm_cohort[feat].corr(sm_cohort[sm_target])
+        r_loc = loc_cohort[feat].corr(loc_cohort[loc_target])
+        same_dir = "✅ 一致" if (r_sm * r_loc > 0) else "⚠️ 反向"
+        print(f"{feat:28s} | {r_sm:14.4f} | {r_loc:12.4f} | {same_dir}")
 
 if __name__ == "__main__":
     df_sm_raw = pd.read_csv(PROCESSED_DIR / "soccermon_daily_panel.csv", parse_dates=["date"])

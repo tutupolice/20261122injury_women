@@ -5,7 +5,7 @@ Step 05 (论文主线正式版):
   - 特征子集：Step 14 客观 LASSO 筛选出的 27 个非零特征
   - 模型与参数：Logistic Regression (C=0.01, penalty='l2', class_weight='balanced', solver='saga')
 将该模型 100% 冻结（不再使用本地标签训练或微调权重），直接在本地 24 名女足队员队列 (1,421 活跃监控日)
-上进行外部验证（涵盖未来 7 天与未来 3 天非接触性损伤预警），并报告：
+上进行外部验证（涵盖未来 7 天与未来 3 天自报告运动损伤预警），并报告：
   1. Pooled ROC-AUC & Pooled AP (含按运动员聚类 Bootstrap 95% CI, B=1000)；
   2. 源域 OOF F1 最优阈值及不同预警预算 (Top 10% / 15% / 20% / 25% / 30%) 下的外部验证表现；
   3. Platt 基线校准前后的 Brier Score 与高风险五分位相对风险倍数 (Top 20% vs Bottom 20% Lift)。
@@ -233,10 +233,12 @@ def evaluate_frozen_transfer(df_sm, df_loc, selected_features, tuned_params, src
 def main():
     df_sm, df_loc, selected_features, tuned_params, spec = load_datasets()
     src_target_7d = spec["target_col"]
-    src_target_3d = "target_non_contact_next_3d" if "target_non_contact_next_3d" in df_sm.columns else src_target_7d
-
-    loc_target_7d = "target_non_contact_next_7d"
-    loc_target_3d = "target_non_contact_next_3d"
+    src_target_3d = next(
+        (c for c in ["target_all_inj_next_3d", "target_all_inj_next_3d"] if c in df_sm.columns),
+        src_target_7d,
+    )
+    loc_target_7d = "target_all_inj_next_7d"
+    loc_target_3d = "target_all_inj_next_3d"
 
     print("=" * 115)
     print(f"🚀 Step 05: 冻结源域最优基准模型 [{spec['best_model']}, 参数={tuned_params}] -> 本地 24 名女足外部验证")
@@ -245,11 +247,11 @@ def main():
 
     sum_7d, bud_7d = evaluate_frozen_transfer(
         df_sm, df_loc, selected_features, tuned_params,
-        src_target_7d, loc_target_7d, "未来 7 天非接触性损伤 (7d Non-Contact)"
+        src_target_7d, loc_target_7d, "未来 7 天自报告运动损伤 (7d Self-Reported Injury)"
     )
     sum_3d, bud_3d = evaluate_frozen_transfer(
         df_sm, df_loc, selected_features, tuned_params,
-        src_target_3d, loc_target_3d, "未来 3 天非接触性损伤 (3d Non-Contact)"
+        src_target_3d, loc_target_3d, "未来 3 天自报告运动损伤 (3d Self-Reported Injury)"
     )
 
     all_sum = pd.concat([sum_7d, sum_3d], ignore_index=True)
