@@ -26,3 +26,9 @@ outputs/**
 !data/raw/local_24/.gitkeep
 !data/processed/.gitkeep
 !outputs/.gitkeep
+
+# Privacy protection: exclude individual trajectories, fold player lists, and private review files
+outputs/figures_final/fig4_anonymized_trajectories.png
+outputs/step11_table3_anonymized_folds.csv
+outputs/private_review/
+data/processed/*_pre_audit.csv

@@ -64,7 +64,8 @@ def compute_step11_predictions(df_sm: pd.DataFrame, df_loc: pd.DataFrame, target
         df_sm[target_col] = df_sm[sm_alt]
 
     sm_act_col = "active_day" if "active_day" in df_sm.columns else "is_active_day"
-    sm_active = df_sm[(df_sm[sm_act_col] == 1) & (df_sm["is_rehab"] == 0) & (df_sm["is_injured"] == 0)].copy()
+    sm_active = df_sm[(df_sm[sm_act_col] == 1) & (df_sm["is_rehab"] == 0) & (df_sm["is_injured"] == 0) & (df_sm[target_col].notna())].copy()
+    sm_active[target_col] = sm_active[target_col].astype(int)
     sm_onset_col = "inj_all_onset" if "inj_all_onset" in sm_active.columns else "inj_all_onset"
     if "inj_prevalence" in sm_active.columns and sm_onset_col in sm_active.columns:
         sm_clean = sm_active[~((sm_active["inj_prevalence"] == 1) & (sm_active[sm_onset_col] == 0))].reset_index(drop=True)
@@ -86,7 +87,7 @@ def compute_step11_predictions(df_sm: pd.DataFrame, df_loc: pd.DataFrame, target
     prob_base = rf_base.predict_proba(loc_active[base_cols].fillna(0).values)[:, 1]
 
     # 2. Nested Cross-Fitted Zero-Shot (2b)
-    loc_active, _, _, prob_zs, _ = fit_nested_crossfitted_source(sm_clean, loc_active, target_col)
+    loc_active, _, _, prob_zs, _, _ = fit_nested_crossfitted_source(sm_clean, loc_active, target_col)
 
     # 3. StratifiedGroupKFold-5 (3c)
     sgkf5 = StratifiedGroupKFold(n_splits=5)

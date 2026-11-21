@@ -216,7 +216,7 @@ def fit_nested_crossfitted_source(sm_clean: pd.DataFrame, loc_active: pd.DataFra
     prob_2a_loc = np.mean(p2a_preds, axis=0)
     prob_2b_loc = np.mean(p2b_preds, axis=0)
 
-    return loc_out, prob_2a_loc, th_2a, prob_2b_loc, th_2b
+    return loc_out, prob_2a_loc, th_2a, prob_2b_loc, th_2b, nested_oof_2b
 
 
 class CalibratedNestedAdapter:
@@ -344,7 +344,8 @@ def run_step11_suite(df_sm: pd.DataFrame, df_loc: pd.DataFrame, target_col: str,
 
     # 严格保留全部 50 名有效监控运动员（消除 15 人选择偏倚）
     sm_act_col = "active_day" if "active_day" in df_sm.columns else "is_active_day"
-    sm_active = df_sm[(df_sm[sm_act_col] == 1) & (df_sm["is_rehab"] == 0) & (df_sm["is_injured"] == 0)].copy()
+    sm_active = df_sm[(df_sm[sm_act_col] == 1) & (df_sm["is_rehab"] == 0) & (df_sm["is_injured"] == 0) & (df_sm[target_col].notna())].copy()
+    sm_active[target_col] = sm_active[target_col].astype(int)
     sm_onset_col = "inj_all_onset" if "inj_all_onset" in sm_active.columns else "inj_all_onset"
     if "inj_prevalence" in sm_active.columns and sm_onset_col in sm_active.columns:
         sm_clean = sm_active[~((sm_active["inj_prevalence"] == 1) & (sm_active[sm_onset_col] == 0))].reset_index(drop=True)
@@ -368,7 +369,7 @@ def run_step11_suite(df_sm: pd.DataFrame, df_loc: pd.DataFrame, target_col: str,
     pred_1_base = (prob_1_base >= 0.50).astype(int)
 
     # 2. 严格双层嵌套 + 交叉拟合集成源域 Zero-Shot (2a & 2b)
-    loc_active, prob_2a, th_2a, prob_2b, th_2b = fit_nested_crossfitted_source(sm_clean, loc_active, target_col)
+    loc_active, prob_2a, th_2a, prob_2b, th_2b, src_oof_2b = fit_nested_crossfitted_source(sm_clean, loc_active, target_col)
     pred_2a = (prob_2a >= th_2a).astype(int)
     pred_2b = (prob_2b >= th_2b).astype(int)
 
@@ -470,7 +471,7 @@ def run_step11_suite(df_sm: pd.DataFrame, df_loc: pd.DataFrame, target_col: str,
 
         recent_start = pd.Timestamp(curr_date) - pd.Timedelta(days=horizon_days + 21)
         recent_mask = ((dates_loc <= purge_cutoff) & (dates_loc >= recent_start)).values
-        ref_probs = oof_prob_temp[recent_mask] if recent_mask.sum() >= 30 else prob_2b[: max(24, np.where(te_mask)[0][0])]
+        ref_probs = oof_prob_temp[recent_mask] if recent_mask.sum() >= 30 else src_oof_2b
         for b in budgets:
             th_b_recent = float(np.quantile(ref_probs, 1.0 - b))
             oof_budgets_temp[b][te_mask] = (oof_prob_temp[te_mask] >= th_b_recent).astype(int)

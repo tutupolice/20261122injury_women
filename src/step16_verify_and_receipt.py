@@ -129,7 +129,8 @@ def main():
                 "excluded_injured_or_rehab_days": int(len(sm_act) - len(sm_risk)),
                 "all_injury_onsets_total": int(sm_panel["inj_all_onset"].sum()),
                 "all_injury_onsets_in_active_days": int(sm_act["inj_all_onset"].sum()),
-                "strict_future_7d_positives_in_risk_set": int(sm_risk["target_all_inj_next_7d"].sum()),
+                "right_censored_excluded_7d_days": int(sm_risk["target_all_inj_next_7d"].isna().sum()),
+                "strict_future_7d_positives_in_risk_set": int(sm_risk["target_all_inj_next_7d"].dropna().sum()),
             },
             "local_24": {
                 "n_players": int(loc_panel["player_id"].nunique()),
@@ -150,6 +151,7 @@ def main():
         },
         "provenance_hashes": {
             "code_files": code_hashes,
+            "raw_local_injury_log_sha256": next((file_sha256(f) for f in (PROJECT_ROOT / "data" / "raw" / "local_24").rglob("女足损伤记录表.xlsx") if "备份" not in f.name), "not_found"),
             "input_processed_files": input_hashes,
             "output_tables": table_hashes,
             "output_figures": fig_hashes,

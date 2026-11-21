@@ -19,11 +19,15 @@ LOCAL_RAW_DIR = PROJECT_ROOT / "data" / "raw" / "local_24"
 PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 
 
-def strict_future_window_max(series: pd.Series, horizon_days: int) -> pd.Series:
-    """严格未来窗口 [t+1, t+horizon_days]（绝不含第 t 日当日）"""
+def strict_future_window_max(series: pd.Series, horizon_days: int, censor_tail: bool = False) -> pd.Series:
+    """严格未来窗口 [t+1, t+horizon_days]；censor_tail=True 时末端不足 h 天且无事件标 NaN 消除右删失"""
     s_next = series.fillna(0).astype(int).shift(-1).fillna(0).astype(int)
     rev_max = s_next.iloc[::-1].rolling(window=horizon_days, min_periods=1).max()
-    return rev_max.iloc[::-1].astype(int)
+    out = rev_max.iloc[::-1].astype(float)
+    if censor_tail and len(out) > 0:
+        tail_idx = out.index[-min(horizon_days, len(out)):]
+        out.loc[tail_idx] = out.loc[tail_idx].where(out.loc[tail_idx] == 1, float("nan"))
+    return out
 
 
 def load_local_rehab_intervals() -> dict[str, list[tuple[pd.Timestamp, int]]]:
@@ -117,8 +121,9 @@ def fix_panel(csv_path: Path, is_soccermon: bool, local_rehab_map=None):
             g["is_rehab"] = (g.index.isin(rehab_dates) & (g["inj_all_onset"] == 0)).astype(int)
             g["is_injured"] = ((g["inj_all_onset"] == 1) | (g["is_rehab"] == 1)).astype(int)
 
-        g["target_all_inj_next_7d"] = strict_future_window_max(g["inj_all_onset"], 7)
-        g["target_all_inj_next_3d"] = strict_future_window_max(g["inj_all_onset"], 3)
+        # SoccerMon 无面板外独立随访，末端不足 h 天标 NaN；本地独立随访覆盖至 2026-06-25（完整覆盖 06-18 的 7 天窗）
+        g["target_all_inj_next_7d"] = strict_future_window_max(g["inj_all_onset"], 7, censor_tail=is_soccermon)
+        g["target_all_inj_next_3d"] = strict_future_window_max(g["inj_all_onset"], 3, censor_tail=is_soccermon)
 
         drop_cols = [c for c in ["non_contact_onset", "inj_non_contact_onset", "target_non_contact_next_7d", "target_non_contact_next_3d"] if c in g.columns]
         if drop_cols:
@@ -138,10 +143,10 @@ def fix_panel(csv_path: Path, is_soccermon: bool, local_rehab_map=None):
     all_onsets = int(fixed_df["inj_all_onset"].sum())
     act_onsets = int(active_df["inj_all_onset"].sum())
     rehab_days_total = int(fixed_df["is_rehab"].sum())
-    n_pos7 = int(at_risk_df["target_all_inj_next_7d"].sum())
-    n_pos3 = int(at_risk_df["target_all_inj_next_3d"].sum())
+    valid7 = at_risk_df["target_all_inj_next_7d"].dropna(); n_pos7 = int(valid7.sum())
+    valid3 = at_risk_df["target_all_inj_next_3d"].dropna(); n_pos3 = int(valid3.sum())
     print(f"✅ [{label}] 识别监测列={len(mon_cols)}个 | 日历={len(fixed_df)}天 | 活跃监控日={len(active_df)}天 | 损伤休息日(is_rehab)={rehab_days_total}天 | 统一风险集={len(at_risk_df)}天")
-    print(f"   -> 全部自报告伤病日={all_onsets} (活跃日内={act_onsets}) | 严格未来(t,t+7]阳性={n_pos7} ({n_pos7/len(at_risk_df)*100:.2f}%) | (t,t+3]阳性={n_pos3} ({n_pos3/len(at_risk_df)*100:.2f}%)")
+    print(f"   -> 全部自报告伤病日={all_onsets} (活跃日内={act_onsets}) | 严格未来(t,t+7]阳性={n_pos7} ({n_pos7/max(len(valid7),1)*100:.2f}%) | (t,t+3]阳性={n_pos3} ({n_pos3/max(len(valid3),1)*100:.2f}%)")
 
 
 def main():
