@@ -174,8 +174,8 @@ def audit_and_load_data():
 
     if "is_rehab" in df_sm.columns:
         df_sm = df_sm[df_sm["is_rehab"] == 0].copy()
-    if "inj_all_onset" in df_sm.columns and "is_injured" in df_sm.columns:
-        df_sm = df_sm[(df_sm["is_injured"] == 0) | (df_sm["inj_all_onset"] == 1)].copy()
+    if "is_injured" in df_sm.columns:
+        df_sm = df_sm[df_sm["is_injured"] == 0].copy()
 
     target_candidates = [
         "target_all_inj_next_7d",

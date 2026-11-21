@@ -108,16 +108,16 @@ def load_datasets():
             df_sm = df_sm[df_sm[mon_cols].notna().any(axis=1)].copy()
     if "is_rehab" in df_sm.columns:
         df_sm = df_sm[df_sm["is_rehab"] == 0].copy()
-    if "inj_all_onset" in df_sm.columns and "is_injured" in df_sm.columns:
-        df_sm = df_sm[(df_sm["is_injured"] == 0) | (df_sm["inj_all_onset"] == 1)].copy()
+    if "is_injured" in df_sm.columns:
+        df_sm = df_sm[df_sm["is_injured"] == 0].copy()
 
     # 过滤本地非监控日与康复日
     if "active_day" in df_loc.columns:
         df_loc = df_loc[df_loc["active_day"] == 1].copy()
     if "is_rehab" in df_loc.columns:
         df_loc = df_loc[df_loc["is_rehab"] == 0].copy()
-    if "inj_all_onset" in df_loc.columns and "is_injured" in df_loc.columns:
-        df_loc = df_loc[(df_loc["is_injured"] == 0) | (df_loc["inj_all_onset"] == 1)].copy()
+    if "is_injured" in df_loc.columns:
+        df_loc = df_loc[df_loc["is_injured"] == 0].copy()
 
     return df_sm, df_loc, selected_features, tuned_params, spec
 

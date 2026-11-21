@@ -317,6 +317,14 @@ def build_local_panel():
     df_inj = pd.read_excel(LOCAL_DATA_DIR / "02_基线数据" / "女足损伤记录表.xlsx")
     df_inj["player_id"] = df_inj["球员姓名"].apply(clean_player_name)
     df_inj["date"] = pd.to_datetime(df_inj["受伤日期"])
+    severity_col = "严重程度（天）"
+    if severity_col not in df_inj.columns:
+        raise ValueError(f"损伤记录表缺少已核定的 {severity_col} 列")
+    severity_text = df_inj[severity_col].astype(str).str.strip()
+    valid_severity = severity_text.str.fullmatch(r"\d+\s*天")
+    if not valid_severity.all():
+        raise ValueError(f"损伤记录表有无法解析的休息天数，原表行号: {(df_inj.index[~valid_severity] + 2).tolist()}")
+    df_inj["rest_days"] = severity_text.str.extract(r"(\d+)")[0].astype(int)
 
     # 区分【纯外力急性碰撞/踢伤】与【非接触/过度使用/扭拉伤】
     contact_keywords = ["踢伤", "接触性", "碰撞", "摔倒", "摔伤", "杵到", "磕碰", "撞击", "岔气"]
@@ -328,7 +336,7 @@ def build_local_panel():
         return any(k in txt for k in contact_keywords)
 
     df_inj["is_pure_contact"] = df_inj.apply(check_is_contact, axis=1)
-    df_inj["is_time_loss"] = ~df_inj["严重程度"].astype(str).str.contains("0|轻", regex=True)
+    df_inj["is_time_loss"] = df_inj["rest_days"] > 0
 
     all_inj_set = set(zip(df_inj["player_id"], df_inj["date"]))
     non_contact_set = set(zip(df_inj.loc[~df_inj["is_pure_contact"], "player_id"], df_inj.loc[~df_inj["is_pure_contact"], "date"]))
