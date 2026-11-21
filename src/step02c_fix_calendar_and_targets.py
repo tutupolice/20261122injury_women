@@ -25,7 +25,7 @@ def strict_future_window_max(series: pd.Series, horizon_days: int) -> pd.Series:
 
 def load_local_rehab_intervals() -> dict[str, list[tuple[pd.Timestamp, int]]]:
     """读取整理后的《女足损伤记录表.xlsx》，提取每位队员 (受伤日期, 严重程度天数k)"""
-    inj_files = list(LOCAL_RAW_DIR.rglob("*损伤记录表*.xlsx"))
+    inj_files = [f for f in LOCAL_RAW_DIR.rglob("女足损伤记录表.xlsx") if "备份" not in f.name]
     if not inj_files:
         raise FileNotFoundError(f"未在 {LOCAL_RAW_DIR} 下找到《女足损伤记录表.xlsx》，请确认已放入！")
 
