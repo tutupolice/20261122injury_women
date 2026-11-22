@@ -116,8 +116,17 @@ def fix_panel(csv_path: Path, is_soccermon: bool, local_rehab_map=None, local_fo
             g["is_rehab"] = (g.index.isin(rehab_dates) & (g["inj_all_onset"] == 0)).astype(int)
             g["is_injured"] = ((g["inj_all_onset"] == 1) | (g["is_rehab"] == 1)).astype(int)
 
-        g["target_all_inj_next_7d"] = strict_future_window_max(g["inj_all_onset"], 7, followup_end_date=eff_followup_end)
-        g["target_all_inj_next_3d"] = strict_future_window_max(g["inj_all_onset"], 3, followup_end_date=eff_followup_end)
+        # 若存在超出特征末日的独立随访截止日，先在延伸至 eff_followup_end 的结局日历上计算标签，再贴回原日历
+        if (not is_soccermon) and (eff_followup_end is not None) and (eff_followup_end > g.index.max()):
+            ext_dates = pd.date_range(g.index.min(), eff_followup_end, freq="D")
+            ext_onset = pd.Series(ext_dates.isin(onset_dates).astype(int), index=ext_dates)
+            t7_ext = strict_future_window_max(ext_onset, 7, followup_end_date=eff_followup_end)
+            t3_ext = strict_future_window_max(ext_onset, 3, followup_end_date=eff_followup_end)
+            g["target_all_inj_next_7d"] = t7_ext.reindex(g.index)
+            g["target_all_inj_next_3d"] = t3_ext.reindex(g.index)
+        else:
+            g["target_all_inj_next_7d"] = strict_future_window_max(g["inj_all_onset"], 7, followup_end_date=eff_followup_end)
+            g["target_all_inj_next_3d"] = strict_future_window_max(g["inj_all_onset"], 3, followup_end_date=eff_followup_end)
 
         drop_cols = [c for c in ["non_contact_onset", "inj_non_contact_onset", "target_non_contact_next_7d", "target_non_contact_next_3d"] if c in g.columns]
         if drop_cols:
