@@ -26,7 +26,7 @@ def file_sha256(path: Path) -> str:
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(8192), b""):
             h.update(chunk)
-    return h.hexdigest()[:16]
+    return h.hexdigest()
 
 
 def get_git_info():
@@ -47,7 +47,7 @@ def hash_file_list(base_dir: Path, filenames: list[str]):
     for fn in filenames:
         p = base_dir / fn
         if p.exists():
-            out[fn] = {"exists": True, "size_bytes": p.stat().st_size, "sha256_prefix": file_sha256(p)}
+            out[fn] = {"exists": True, "size_bytes": p.stat().st_size, "sha256": file_sha256(p)}
         else:
             out[fn] = {"exists": False}
             missing.append(fn)
@@ -69,7 +69,10 @@ def main():
     loc_risk = loc_act[(loc_act["is_rehab"] == 0) & (loc_act["is_injured"] == 0)]
 
     code_files = [
+        "step02_build_local_dataset.py",
+        "step02b_build_soccermon_dataset.py",
         "step02c_fix_calendar_and_targets.py",
+        "step09_final_clean_pipeline.py",
         "step03_feature_engineering.py",
         "step14_soccermon_8models_benchmark.py",
         "step13_shap_analysis.py",
@@ -151,6 +154,7 @@ def main():
         },
         "provenance_hashes": {
             "code_files": code_hashes,
+            "study_protocol_sha256": file_sha256(PROJECT_ROOT / "config" / "study_protocol.json"),
             "raw_local_injury_log_sha256": next((file_sha256(f) for f in (PROJECT_ROOT / "data" / "raw" / "local_24").rglob("女足损伤记录表.xlsx") if "备份" not in f.name), "not_found"),
             "input_processed_files": input_hashes,
             "output_tables": table_hashes,

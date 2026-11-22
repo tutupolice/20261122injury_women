@@ -1,0 +1,16 @@
+{
+  "study_title": "基于机器学习的女足运动损伤风险因素评估模型构建与验证研究",
+  "ethics_approval": "东北师范大学科技伦理委员会 (批准号: 202602002)",
+  "local_cohort_protocol": {
+    "n_players": 24,
+    "feature_monitoring_start": "2026-03-24",
+    "feature_monitoring_end": "2026-06-18",
+    "injury_surveillance_end": "2026-06-25",
+    "injury_surveillance_note": "本地伤病随访独立持续至2026-06-25（期末周结束），2026-06-19至2026-06-25期间确认无新增伤病报告，完整覆盖至2026-06-18发出的7天预测窗口。",
+    "rehab_day_rule": "受伤当日(d)记为inj_all_onset=1；严重程度k>=1天时，次日d+1至d+k记为is_rehab=1"
+  },
+  "soccermon_cohort_protocol": {
+    "n_players": 50,
+    "injury_surveillance_rule": "无面板外独立随访记录，按每名运动员末日自动右删失，末端不足h天且无事件的窗口标为NaN并排除"
+  }
+}
